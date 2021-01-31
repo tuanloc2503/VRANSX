@@ -1,7 +1,8 @@
 ###############################################################################
 #
 # This configuration file is an example of creating a full-fledged 3-Tier App
-# using Terraform.
+# using Terraform - v0.12.7
+# Tuan modified and validated works in NSXT 3.1.1 GA code build 17541984 date 01/30/2021
 #
 # It creates the following objects:
 #   - Tier-1 Gateway (that gets attached to an existing Tier-0 Gateway)
