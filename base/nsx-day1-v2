@@ -4,8 +4,12 @@
 # using Terraform - v0.12.7
 
 
-# Tuan modified and validated works in NSXT 3.1.1 GA code build 17541984 date 01/30/2021
-#
+# Tuan modified and validated works in NSXT 3.1.1 GA code build 17541984 date 02//2021
+
+
+# The config has been validated against:
+#    NSX-T 3.1.1 using NSX-T Terraform Provider 0.12.7
+
 # It creates the following objects:
 #   - Tier-1 Gateway (that gets attached to an existing Tier-0 Gateway)
 #   - 3 Segments (Web, App, DB)
@@ -14,10 +18,7 @@
 #   - Distributed Firewall Rules
 #   - Services
 #   - VM tags
-#
-# The config has been validated against:
-#    NSX-T 3.1.1 using NSX-T Terraform Provider 0.12.7
-#
+
 # The config below requires the following to be pre-created
 #   - Edge Cluster
 #   - Overlay Transport Zone
@@ -29,75 +30,378 @@
 #   - SSH
 ################################################################################
 
+#
+# The first step is to configure the VMware NSX provider to connect to the NSX
+# REST API running on the NSX manager.
+#
+provider "nsxt" {
+  host                  = "172.24.19.228"
+  username              = "admin"
+  password              = "VMware1!VMware1!"
+  allow_unverified_ssl  = true
+  max_retries           = 10
+  retry_min_delay       = 500
+  retry_max_delay       = 5000
+  retry_on_status_codes = [429]
+}
 
-Do you want to perform these actions?
-  Terraform will perform the actions described above.
-  Only 'yes' will be accepted to approve.
+#
+# Here we show that you define a NSX tag which can be used later to easily to
+# search for the created objects in NSX.
+#
+variable "nsx_tag_scope" {
+  default = "project"
+}
 
-  Enter a value: yes
-
-nsxt_policy_group.db_group: Creating...
-nsxt_policy_group.app_group: Creating...
-nsxt_policy_group.all_vms: Creating...
-nsxt_policy_service.app_service: Creating...
-nsxt_policy_dhcp_server.tier_dhcp: Creating...
-nsxt_policy_group.web_group: Creating...
-nsxt_policy_group.ip_set: Creating...
-nsxt_policy_group.ip_set: Creation complete after 0s [id=922b0c90-c2c6-47f3-84fe-f4a77bc595da]
-nsxt_policy_dhcp_server.tier_dhcp: Creation complete after 0s [id=c7bf759f-ffe4-4eea-aca9-ac0b420bb19c]
-nsxt_policy_group.app_group: Creation complete after 0s [id=719518f2-deb1-4a02-b17b-569115798723]
-nsxt_policy_group.all_vms: Creation complete after 0s [id=334099ed-b881-44d3-8848-0e4f4c360232]
-nsxt_policy_tier1_gateway.t1_gateway: Creating...
-nsxt_policy_service.app_service: Creation complete after 0s [id=6afaef34-0cfa-4a5d-9043-0f076c3bcef3]
-nsxt_policy_group.db_group: Creation complete after 0s [id=dfa4bb06-2128-401f-ac5b-d123df24f41f]
-nsxt_policy_group.web_group: Creation complete after 0s [id=c0d140ce-9c85-4ee4-a93b-0174383c3de1]
-nsxt_policy_security_policy.firewall_section: Creating...
-nsxt_policy_tier1_gateway.t1_gateway: Creation complete after 1s [id=59d3d89e-231e-40ff-bf65-c83618fa73ec]
-nsxt_policy_segment.web: Creating...
-nsxt_policy_segment.db: Creating...
-nsxt_policy_segment.app: Creating...
-nsxt_policy_security_policy.firewall_section: Creation complete after 1s [id=49453199-bb21-4515-bf88-090e44334478]
-nsxt_policy_segment.app: Creation complete after 0s [id=e0d8d315-27b3-46a2-adad-da44cb87c801]
-nsxt_policy_segment.web: Creation complete after 0s [id=353486b6-c35f-4c20-be10-f41b9d043d2e]
-nsxt_policy_segment.db: Creation complete after 0s [id=7ff4c3a3-b18f-4a08-b9f9-ca83a446be42]
-
-Apply complete! Resources: 12 added, 0 changed, 0 destroyed.
-[root@centos7-srv terraform-provider-nsxt]# clear
-
-[root@centos7-srv terraform-provider-nsxt]# vi nsx-day1-v4-nonat.tf 
+variable "nsx_tag" {
+  default = "web"
+}
 
 
+#
+# This part of the example shows some data sources we will need to refer to
+# later in the .tf file. They include the transport zone, tier 0 router and
+# edge cluster.
+# There Tier-0 (T0) Gateway is considered a "provider" router that is pre-created
+# by the NSX Admin. A T0 Gateway is used for north/south connectivity between
+# the logical networking space and the physical networking space. Many Tier1
+# Gateways will be connected to the T0 Gateway
+#
+data "nsxt_policy_edge_cluster" "demo" {
+  display_name = "edgecluster1"
+}
+
+data "nsxt_policy_transport_zone" "overlay_tz" {
+  display_name = "nsx-overlay-transportzone"
+}
+
+data "nsxt_policy_tier0_gateway" "t0_gateway" {
+  display_name = "TF-T0-Gateway"
+}
+
+#
+# Create a DHCP Profile that is used later
+# Note, this resource is only in NSX 3.0.0+
+resource "nsxt_policy_dhcp_server" "tier_dhcp" {
+  display_name     = "tier_dhcp"
+  description      = "DHCP server servicing all 3 Segments"
+  server_addresses = ["12.12.99.2/24"]
+}
+
+#
+# In this part of the example, the settings required to create a Tier1 Gateway
+# are defined. In NSX a Tier1 Gateway is often used on a per user, tenant,
+# department or application basis. Each application may have it's own Tier1
+# Gateway. The Tier1 Gateway provides the default gateway for virtual machines
+# connected to the Segments on the Tier1 Gateway
+#
+resource "nsxt_policy_tier1_gateway" "t1_gateway" {
+  display_name              = "TF_T1"
+  description               = "Tier1 provisioned by Terraform"
+  #edge_cluster_path         = data.nsxt_policy_edge_cluster.demo.path
+  dhcp_config_path          = nsxt_policy_dhcp_server.tier_dhcp.path
+  failover_mode             = "PREEMPTIVE"
+  default_rule_logging      = "false"
+  enable_firewall           = "true"
+  enable_standby_relocation = "false"
+#  force_whitelisting        = "false"
+  tier0_path                = data.nsxt_policy_tier0_gateway.t0_gateway.path
+  route_advertisement_types = ["TIER1_STATIC_ROUTES", "TIER1_CONNECTED"]
+  pool_allocation           = "ROUTING"
+
+  tag {
+    scope = var.nsx_tag_scope
+    tag   = var.nsx_tag
+  }
+
+  route_advertisement_rule {
+    name                      = "rule1"
+    action                    = "DENY"
+    subnets                   = ["20.0.0.0/24", "21.0.0.0/24"]
+    prefix_operator           = "GE"
+    route_advertisement_types = ["TIER1_CONNECTED"]
+  }
+}
+
+#
+# This shows the settings required to create NSX Segment (Logical Switch) to
+# which you can attach Virtual Machines (VMs)
+#
+resource "nsxt_policy_segment" "web" {
+  display_name        = "web-tier"
+  description         = "Terraform provisioned Web Segment"
+  connectivity_path   = nsxt_policy_tier1_gateway.t1_gateway.path
+  transport_zone_path = data.nsxt_policy_transport_zone.overlay_tz.path
+
+  subnet {
+    cidr        = "172.16.10.1/24"
+    dhcp_ranges = ["172.16.10.100-172.16.10.160"]
+
+    dhcp_v4_config {
+      server_address = "172.16.10.2/24"
+      lease_time     = 36000
+
+      dhcp_option_121 {
+        network  = "6.6.6.0/24"
+        next_hop = "1.1.1.21"
+      }
+    }
+  }
+
+  tag {
+    scope = var.nsx_tag_scope
+    tag   = var.nsx_tag
+  }
+  tag {
+    scope = "tier"
+    tag   = "web"
+  }
+}
+
+resource "nsxt_policy_segment" "app" {
+  display_name        = "app-tier"
+  description         = "Terraform provisioned App Segment"
+  connectivity_path   = nsxt_policy_tier1_gateway.t1_gateway.path
+  transport_zone_path = data.nsxt_policy_transport_zone.overlay_tz.path
+
+  subnet {
+    cidr        = "172.16.20.1/24"
+    dhcp_ranges = ["172.16.20.100-172.16.20.160"]
+
+    dhcp_v4_config {
+      server_address = "172.16.20.2/24"
+      lease_time     = 36000
+
+      dhcp_option_121 {
+        network  = "6.6.6.0/24"
+        next_hop = "1.1.1.21"
+      }
+    }
+  }
+
+  tag {
+    scope = var.nsx_tag_scope
+    tag   = var.nsx_tag
+  }
+  tag {
+    scope = "tier"
+    tag   = "app"
+  }
+}
+
+resource "nsxt_policy_segment" "db" {
+  display_name        = "db-tier"
+  description         = "Terraform provisioned DB Segment"
+  connectivity_path   = nsxt_policy_tier1_gateway.t1_gateway.path
+  transport_zone_path = data.nsxt_policy_transport_zone.overlay_tz.path
+
+  subnet {
+    cidr        = "172.16.30.1/24"
+    dhcp_ranges = ["172.16.30.100-172.16.30.160"]
+
+    dhcp_v4_config {
+      server_address = "172.16.30.2/24"
+      lease_time     = 36000
+
+      dhcp_option_121 {
+        network  = "6.6.6.0/24"
+        next_hop = "1.1.1.21"
+      }
+    }
+  }
+
+  tag {
+    scope = var.nsx_tag_scope
+    tag   = var.nsx_tag
+  }
+  tag {
+    scope = "tier"
+    tag   = "db"
+  }
+}
+
+#
+# This part of the example shows creating Groups with dynamic membership
+# criteria
+#
+# All Virtual machines with specific tag and scope
+resource "nsxt_policy_group" "all_vms" {
+  display_name = "All_VMs"
+  description  = "Group consisting of ALL VMs"
+  criteria {
+    condition {
+      member_type = "VirtualMachine"
+      operator    = "CONTAINS"
+      key         = "Tag"
+      value       = var.nsx_tag
+
+    }
+  }
+}
+
+# All WEB VMs
+resource "nsxt_policy_group" "web_group" {
+  display_name = "Web_VMs"
+  description  = "Group consisting of Web VMs"
+  criteria {
+    condition {
+      member_type = "VirtualMachine"
+      operator    = "CONTAINS"
+      key         = "Tag"
+      value       = "web"
+    }
+  }
+  tag {
+    scope = var.nsx_tag_scope
+    tag   = var.nsx_tag
+  }
+}
+
+# All App VMs
+resource "nsxt_policy_group" "app_group" {
+  display_name = "App_VMs"
+  description  = "Group consisting of App VMs"
+  criteria {
+    condition {
+      member_type = "VirtualMachine"
+      operator    = "CONTAINS"
+      key         = "Tag"
+      value       = "app"
+    }
+  }
+  tag {
+    scope = var.nsx_tag_scope
+    tag   = var.nsx_tag
+  }
+}
+
+# All DB VMs
+resource "nsxt_policy_group" "db_group" {
+  display_name = "DB_VMs"
+  description  = "Group consisting of DB VMs"
+  criteria {
+    condition {
+      member_type = "VirtualMachine"
+      operator    = "CONTAINS"
+      key         = "Tag"
+      value       = "db"
+    }
+  }
+  tag {
+    scope = var.nsx_tag_scope
+    tag   = var.nsx_tag
+  }
+}
+
+# Static Group of IP addresses
+resource "nsxt_policy_group" "ip_set" {
+  display_name = "external_IPs"
+  description  = "Group containing all external IPs"
+  criteria {
+    ipaddress_expression {
+      ip_addresses = ["211.1.1.1", "212.1.1.1", "172.16.10.1-172.16.10.100"]
+    }
+  }
+  tag {
+    scope = var.nsx_tag_scope
+    tag   = var.nsx_tag
+  }
+}
+
+#
+# An example for Service for App that listens on port 8443
+#
+resource "nsxt_policy_service" "app_service" {
+  display_name = "app_service_8443"
+  description  = "Service for App that listens on port 8443"
+  l4_port_set_entry {
+    description       = "TCP Port 8443"
+    protocol          = "TCP"
+    destination_ports = ["8443"]
+  }
+  tag {
+    scope = var.nsx_tag_scope
+    tag   = var.nsx_tag
+  }
+}
+
+#
+# Here we have examples of create data sources for Services
+#
+data "nsxt_policy_service" "https" {
+  display_name = "HTTPS"
+}
+
+data "nsxt_policy_service" "mysql" {
+  display_name = "MySQL"
+}
+
+data "nsxt_policy_service" "ssh" {
+  display_name = "SSH"
+}
 
 
+#
+# In this section, we have example to create Firewall sections and rules
+# All rules in this section will be applied to VMs that are part of the
+# Gropus we created earlier
+#
+resource "nsxt_policy_security_policy" "firewall_section" {
+  display_name = "DFW Section"
+  description  = "Firewall section created by Terraform"
+#  scope        = [nsxt_policy_group.all_vms.path]
+  category     = "Application"
+  locked       = "false"
+  stateful     = "true"
 
+  tag {
+    scope = var.nsx_tag_scope
+    tag   = var.nsx_tag
+  }
 
+  # Allow communication to any VMs only on the ports defined earlier
+  rule {
+    display_name       = "Allow HTTPS"
+    description        = "In going rule"
+    action             = "ALLOW"
+    logged             = "false"
+    ip_version         = "IPV4"
+    destination_groups = [nsxt_policy_group.web_group.path]
+    services           = [data.nsxt_policy_service.https.path]
+  }
 
+  rule {
+    display_name       = "Allow SSH"
+    description        = "In going rule"
+    action             = "ALLOW"
+    logged             = "false"
+    ip_version         = "IPV4"
+    destination_groups = [nsxt_policy_group.web_group.path]
+    services           = [data.nsxt_policy_service.ssh.path]
+  }
 
+  # Web to App communication
+  rule {
+    display_name       = "Allow Web to App"
+    description        = "Web to App communication"
+    action             = "ALLOW"
+    logged             = "false"
+    ip_version         = "IPV4"
+    source_groups      = [nsxt_policy_group.web_group.path]
+    destination_groups = [nsxt_policy_group.app_group.path]
+    services           = [nsxt_policy_service.app_service.path]
+  }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+  # App to DB communication
+  rule {
+    display_name       = "Allow App to DB"
+    description        = "App to DB communication"
+    action             = "ALLOW"
+    logged             = "false"
+    ip_version         = "IPV4"
+    source_groups      = [nsxt_policy_group.app_group.path]
+    destination_groups = [nsxt_policy_group.db_group.path]
+    services           = [data.nsxt_policy_service.mysql.path]
   }
 
   # Allow External IPs to communicate with VMs
@@ -130,4 +434,3 @@ Apply complete! Resources: 12 added, 0 changed, 0 destroyed.
     ip_version   = "IPV4"
   }
 }
-
