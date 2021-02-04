@@ -1,14 +1,14 @@
 ###############################################################################
 #
 # This configuration file is an example of creating a full-fledged 3-Tier App
-# using Terraform - v0.12.7
+# using Terraform - v0.13.6
 
 
-# Tuan modified and validated works in NSXT 3.1.1 GA code build 17541984 date 02/03/2021
+# Tuan modified and validated works in NSXT 3.1.1 GA code build 17541984 date 02/0/2021
 
 
 # The config has been validated against:
-#    NSX-T 3.1.1 using NSX-T Terraform Provider 0.12.7
+#    NSX-T 3.1.1 using NSX-T Terraform Provider 0.13.6
 
 # It creates the following objects:
 #   - Tier-1 Gateway (that gets attached to an existing Tier-0 Gateway)
