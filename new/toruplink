@@ -1,0 +1,45 @@
+data "nsxt_policy_tier0_gateway" "TF-T0-Gateway" {
+  display_name = "TF-T0-Gateway"
+}
+
+resource "nsxt_policy_vlan_segment" "segment0" {
+  display_name = "segment0"
+  vlan_ids     = [12]
+}
+
+resource "nsxt_policy_tier0_gateway_interface" "if1" {
+  display_name           = "segment0_interface"
+  description            = "connection to segment0"
+  type                   = "SERVICE"
+  gateway_path           = data.nsxt_policy_tier0_gateway.TF-T0-Gateway.path
+  segment_path           = nsxt_policy_vlan_segment.segment0.path
+  subnets                = ["172.24.32.241/24"]
+  mtu                    = 1500
+}
+
+resource "nsxt_policy_bgp_neighbor" "test" {
+  display_name          = "tfbpg"
+  description           = "Terraform provisioned BgpNeighborConfig"
+  bgp_path              = data.nsxt_policy_tier0_gateway.TF-T0-Gateway.bgp_config.0.path
+  allow_as_in           = true
+  graceful_restart_mode = "HELPER_ONLY"
+  hold_down_time        = 300
+  keep_alive_time       = 100
+  neighbor_address      = "172.24.32.251"
+  password              = "VMware1!"
+  remote_as_num         = "65001"
+  source_addresses      = nsxt_policy_tier0_gateway_interface.if1.ip_addresses
+
+  bfd_config {
+    enabled  = true
+    interval = 1000
+    multiple = 4
+  }
+
+  route_filtering {
+    address_family   = "IPV4"
+    maximum_routes   = 20
+#    in_route_filter  = nsxt_policy_gateway_prefix_list.test.path
+#    out_route_filter = nsxt_policy_gateway_prefix_list.test.path
+  }
+}
