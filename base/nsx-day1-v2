@@ -4,7 +4,7 @@
 # using Terraform - v0.13.3
 
 
-# Tuan modified and validated works in NSXT 3.1.1 GA code build 17541984 date 02/09/2021
+# Tuan modified and validated works in NSXT 3.1.1 GA code build 17541984 date 02//2021
 # + Creation of T0 + T1 and 3 tiers app Web App DB + Rules and Policies associated
 
 ################################################################################
@@ -14,7 +14,7 @@
 # REST API running on the NSX manager.
 #
 provider "nsxt" {
-  host                  = "172.24.19.228"
+  host                  = "172.25.18.131"
   username              = "admin"
   password              = "VMware1!VMware1!"
   allow_unverified_ssl  = true
