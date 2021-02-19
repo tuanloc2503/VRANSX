@@ -1,6 +1,4 @@
 ################################################################################
-
-#
 # The first step is to configure the VMware NSX provider to connect to the NSX
 # REST API running on the NSX manager.
 #
