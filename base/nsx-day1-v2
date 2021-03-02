@@ -1,37 +1,44 @@
 ###############################################################################
 #
 # This configuration file is an example of creating a full-fledged 3-Tier App
-# using Terraform - v0.13.3
+# using Terraform - v0.13.6
 
 
-# Tuan modified and validated works in NSXT 3.1.1 GA code build 17541984 date 02//2021
-# + Creation of T0 + T1 and 3 tiers app Web App DB + Rules and Policies associated
+# Tuan modified and validated works in NSXT 3.1.1 GA code build 17541984 date 02/0/2021
 
+
+# The config has been validated against:
+#    NSX-T 3.1.1 using NSX-T Terraform Provider 0.13.6
+
+# It creates the following objects:
+#   - Tier-1 Gateway (that gets attached to an existing Tier-0 Gateway)
+#   - 3 Segments (Web, App, DB)
+#   - Dynamic Groups based on VM Tags
+#   - Static Group based on IP Addresses
+#   - Distributed Firewall Rules
+#   - Services
+#   - VM tags
 ################################################################################
 
-#
-# The first step is to configure the VMware NSX provider to connect to the NSX
-# REST API running on the NSX manager.
-#
+terraform {
+  required_providers {
+    nsxt = {
+      source = "vmware/nsxt"
+      version = "3.1.1"
+    }
+  }
+}
+
 provider "nsxt" {
-  host                  = "172.25.18.131"
-  username              = "admin"
-  password              = "VMware1!VMware1!"
+  host                  = var.nsx_manager
+  username              = var.nsx_username
+  password              = var.nsx_password
   allow_unverified_ssl  = true
   max_retries           = 10
   retry_min_delay       = 500
   retry_max_delay       = 5000
   retry_on_status_codes = [429]
 }
-
-variable "nsx_tag_scope" {
-  default = "project"
-}
-
-variable "nsx_tag" {
-  default = "web"
-}
-
 
 #
 data "nsxt_policy_edge_cluster" "demo" {
@@ -42,12 +49,7 @@ data "nsxt_policy_transport_zone" "overlay_tz" {
   display_name = "nsx-overlay-transportzone"
 }
 
-data "nsxt_policy_tier0_gateway" "tier0_gw" {
-  display_name = "TF-T0-Gateway"
-}
-
-resource "nsxt_policy_tier0_gateway" "tier0_gw" {
-
+resource "nsxt_policy_tier0_gateway" "tier0_gw1" {
   description              = "Tier-0 provisioned by Terraform"
   display_name             = "TF-T0-Gateway"
   failover_mode            = "PREEMPTIVE"
@@ -55,44 +57,21 @@ resource "nsxt_policy_tier0_gateway" "tier0_gw" {
   enable_firewall          = true
   #force_whitelisting       = false
   ha_mode                  = "ACTIVE_STANDBY"
-#  internal_transit_subnets = ["102.64.0.0/16"]
-#  transit_subnets          = ["101.64.0.0/16"]
-  #edge_cluster_path        = data.nsxt_policy_edge_cluster.EC.path
-#  rd_admin_address         = "192.168.0.2"
+  internal_transit_subnets = ["102.64.0.0/16"]
+  transit_subnets          = ["101.64.0.0/16"]
+  edge_cluster_path        = data.nsxt_policy_edge_cluster.demo.path
+  rd_admin_address         = "192.168.0.2"
 
-#  bgp_config {
-#    local_as_num    = "60000"
-#    multipath_relax = false
+bgp_config {
+    local_as_num    = "65101"
+    multipath_relax = false
 
-#    route_aggregation {
-#      prefix = "12.10.10.0/24"
-#    }
-
-#    route_aggregation {
-#      prefix = "12.11.10.0/24"
-#    }
-#  }
-
-#  redistribution_config {
-#    enabled = true
-#    rule {
-#      name  = "rule1"
-#      types = ["TIER0_STATIC", "TIER0_CONNECTED", "TIER1_CONNECTED"]
-#    }
-#  }
-
-#  tag {
-#    scope = "color"
-#    tag   = "blue"
-#  }
-
+    route_aggregation {
+      prefix = "12.10.10.0/24"
+    }
 
 }
-
-
-#
-# Create a DHCP Profile that is used later
-# Note, this resource is only in NSX 3.0.0+
+}
 
 resource "nsxt_policy_dhcp_server" "tier_dhcp" {
   display_name     = "tier_dhcp"
@@ -108,7 +87,7 @@ resource "nsxt_policy_dhcp_server" "tier_dhcp" {
 # connected to the Segments on the Tier1 Gateway
 #
 resource "nsxt_policy_tier1_gateway" "t1_gateway" {
-  display_name              = "TF_T1_2"
+  display_name              = "TF_T1"
   description               = "Tier1 provisioned by Terraform"
   #edge_cluster_path         = data.nsxt_policy_edge_cluster.demo.path
   dhcp_config_path          = nsxt_policy_dhcp_server.tier_dhcp.path
@@ -117,7 +96,7 @@ resource "nsxt_policy_tier1_gateway" "t1_gateway" {
   enable_firewall           = "true"
   enable_standby_relocation = "false"
 #  force_whitelisting        = "false"
-  tier0_path                = data.nsxt_policy_tier0_gateway.tier0_gw.path
+  tier0_path                = nsxt_policy_tier0_gateway.tier0_gw1.path
   route_advertisement_types = ["TIER1_STATIC_ROUTES", "TIER1_CONNECTED"]
   pool_allocation           = "ROUTING"
 
@@ -133,6 +112,8 @@ resource "nsxt_policy_tier1_gateway" "t1_gateway" {
     prefix_operator           = "GE"
     route_advertisement_types = ["TIER1_CONNECTED"]
   }
+
+  depends_on = [nsxt_policy_tier0_gateway.tier0_gw1]
 }
 
 #
@@ -351,7 +332,6 @@ data "nsxt_policy_service" "mysql" {
 data "nsxt_policy_service" "ssh" {
   display_name = "SSH"
 }
-
 
 #
 # In this section, we have example to create Firewall sections and rules
