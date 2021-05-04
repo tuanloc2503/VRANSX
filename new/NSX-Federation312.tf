@@ -8,8 +8,8 @@ provider "nsxt" {
 }
 
 provider "nsxt" {
-  alias                = "virginia"
-  host                 = "172.24.19.230"
+  alias                = "Virginia"
+  host                 = "172.24.19.228"
   username             = "admin"
   password             = "VMware1!VMware1!2"
   allow_unverified_ssl = true
