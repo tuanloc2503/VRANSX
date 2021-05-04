@@ -26,11 +26,11 @@ provider "nsxt" {
 */
 
 data "nsxt_policy_site" "virginia" {
-  display_name = "nsx-virginia"
+  display_name = "virginia"
 }
 
 data "nsxt_policy_site" "dallas" {
-  display_name = "nsx-dallas"
+  display_name = "dallas"
 }
 
 data "nsxt_policy_transport_zone" "virginia_overlay_tz" {
@@ -249,4 +249,5 @@ resource "nsxt_policy_security_policy" "virginia-dallas-policy" {
     destination_groups = [nsxt_policy_group.virginia_group.path]
     services           = [data.nsxt_policy_service.ssh.path]
     action             = "ALLOW"
+  }
   }
