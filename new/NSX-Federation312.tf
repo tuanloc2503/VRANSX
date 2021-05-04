@@ -9,9 +9,9 @@ provider "nsxt" {
 
 provider "nsxt" {
   alias                = "virginia"
-  host                 = "172.16.200.41"
+  host                 = "172.24.19.230"
   username             = "admin"
-  password             = "myPassword1!myPassword1!"
+  password             = "VMware1!VMware1!2"
   allow_unverified_ssl = true
 }
 
@@ -40,7 +40,7 @@ data "nsxt_policy_transport_zone" "virginia_overlay_tz" {
 
 data "nsxt_policy_transport_zone" "dallas_overlay_tz" {
   display_name = "nsx-overlay-transportzone"
-  site_path    = data.nsxt_policy_site.paris.path
+  site_path    = data.nsxt_policy_site.dallas.path
 }
 
 data "nsxt_policy_edge_cluster" "virginia" {
@@ -64,14 +64,14 @@ resource "nsxt_policy_tier0_gateway" "global_t0" {
   description   = "Tier-0 with Global scope"
   failover_mode = "PREEMPTIVE"
   locale_service {
-    edge_cluster_path = data.nsxt_policy_edge_cluster.paris.path
+    edge_cluster_path = data.nsxt_policy_edge_cluster.dallas.path
   }
   locale_service {
-    edge_cluster_path    = data.nsxt_policy_edge_cluster.london.path
-    preferred_edge_paths = [data.nsxt_policy_edge_node.london_edge1.path]
+    edge_cluster_path    = data.nsxt_policy_edge_cluster.virginia.path
+    preferred_edge_paths = [data.nsxt_policy_edge_node.virginia_edge1.path]
   }
   locale_service {
-    edge_cluster_path = data.nsxt_policy_edge_cluster.ny.path
+    edge_cluster_path = data.nsxt_policy_edge_cluster.dallas.path
   }
   tag {
     tag = "terraform"
@@ -92,11 +92,11 @@ resource "nsxt_policy_bgp_config" "global_bgp_t0" {
 }
 
 resource "nsxt_policy_tier1_gateway" "virginia_t1" {
-  display_name = "Ny-T1"
-  nsx_id       = "Ny-T1"
+  display_name = "Virginia-T1"
+  nsx_id       = "Virginia-T1"
   tier0_path   = nsxt_policy_tier0_gateway.global_t0.path
   locale_service {
-    edge_cluster_path = data.nsxt_policy_edge_cluster.ny.path
+    edge_cluster_path = data.nsxt_policy_edge_cluster.virginia.path
   }
   tag {
     tag = "terraform"
@@ -108,7 +108,7 @@ resource "nsxt_policy_tier1_gateway" "dallas_t1" {
   nsx_id       = "Dallas-T1"
   tier0_path   = nsxt_policy_tier0_gateway.global_t0.path
   locale_service {
-    edge_cluster_path = data.nsxt_policy_edge_cluster.paris.path
+    edge_cluster_path = data.nsxt_policy_edge_cluster.dallas.path
   }
   tag {
     tag = "terraform"
@@ -161,7 +161,7 @@ resource "nsxt_policy_segment" "virginia_segment" {
   display_name        = "Virginia-Segment"
   nsx_id              = "Virginia-Segment"
   connectivity_path   = nsxt_policy_tier1_gateway.virginia_t1.path
-  transport_zone_path = data.nsxt_policy_transport_zone.ny_overlay_tz.path
+  transport_zone_path = data.nsxt_policy_transport_zone.virginia_overlay_tz.path
   subnet {
     cidr = "41.41.41.1/24"
   }
@@ -177,7 +177,7 @@ resource "nsxt_policy_segment" "dallas_segment" {
   display_name        = "Dallas-Segment"
   nsx_id              = "Dallas-Segment"
   connectivity_path   = nsxt_policy_tier1_gateway.dallas_t1.path
-  transport_zone_path = data.nsxt_policy_transport_zone.paris_overlay_tz.path
+  transport_zone_path = data.nsxt_policy_transport_zone.dallas_overlay_tz.path
   subnet {
     cidr = "42.42.42.1/24"
   }
@@ -200,7 +200,7 @@ data "nsxt_policy_service" "icmp" {
 resource "nsxt_policy_group" "virginia_group" {
   display_name = "virginia-group"
   nsx_id       = "virginia-group"
-  domain       = data.nsxt_policy_site.ny.id
+  domain       = data.nsxt_policy_site.virginia.id
   criteria {
     condition {
       member_type = "VirtualMachine"
@@ -231,14 +231,14 @@ resource "nsxt_policy_group" "dallas_group" {
   }
 }
 
-resource "nsxt_policy_security_policy" "virginia-paris-policy" {
-  display_name = "Virginia-Paris-SSH"
+resource "nsxt_policy_security_policy" "virginia-dallas-policy" {
+  display_name = "Virginia-Dallas-SSH"
   nsx_id       = "Virginia-Dallas-SSH"
   category     = "Application"
   stateful     = true
   rule {
     display_name       = "Virginia-Dallas-SSH"
-    source_groups      = [nsxt_policy_group.ny_group.path]
+    source_groups      = [nsxt_policy_group.virginia_group.path]
     destination_groups = [nsxt_policy_group.dallas_group.path]
     services           = [data.nsxt_policy_service.ssh.path]
     action             = "ALLOW"
